@@ -3,34 +3,40 @@
 --!native
 
 -- Signal
--- yet another signal module, based on roblox's signal-lua
--- and LemonSignal
+-- yet another signal module although without ordering,
+-- infact this signal is so anti-ordering that it uses swap removal
+-- based on roblox's signal-lua and LemonSignal.
 -- @Kalrnlo
 -- 25/02/2024
-
-type Callback<T...> = (...T) -> ()
-
-export type Signal<T...> = {
-	Connect: (self: Signal<T...>, Callback: Callback<T...>) -> () -> (),
-	Once: (self: Signal<T...>, Callback: Callback<T...>) -> () -> (),
-	Clear: (self: Signal<T...>) -> (),
-	Wait: (self: Signal<T...>) -> T...,
-
-	Connections: {Connection<T...> | thread}
-}
-
-export type FrozenSignal<T...> = {
-	Connect: (self: Signal<T...>, Callback: Callback<T...>) -> () -> (),
-	Once: (self: Signal<T...>, Callback: Callback<T...>) -> () -> (),
-	Wait: (self: Signal<T...>) -> T...,
-}
 
 type Sender<T...> = typeof(setmetatable({} :: {Signal<T...>}, {} :: SenderPrototype))
 
 type Connection<T...> = typeof(setmetatable({} :: {
 	["1"]: Callback<T...>,
 	["2"]: Signal<T...>,
+	["3"]: boolean?,
 }, {} :: ConnectionPrototype))
+
+type ConnectionPrototype<T...> = {
+	__call: (self: Connection<T...>) -> ()
+}
+
+type SenderPrototype<T...> = {
+	__call: (self: Sender<T...>, ...T) -> ()
+}
+
+type Connections<T...> = {Connection<T...> | thread}
+
+type Callback<T...> = (...T) -> ()
+
+export type ReadableSignal<Value> = Signal<Value> & {Value: Value}
+
+export type Signal<T...> = {
+	Subscribe: (self: Signal<T...>, Callback: Callback<T...>) -> () -> (),
+	Once: (self: Signal<T...>, Callback: Callback<T...>) -> () -> (),
+	Wait: (self: Signal<T...>) -> T...,
+	Connections: {Connection<T...> | thread},
+}
 
 type ConnectionPrototype<T...> = {
 	__call: (self: Connection<T...>) -> ()
@@ -44,12 +50,15 @@ local function Resume<T...>(Thread: thread, ...: T...)
 	local Success, Message = coroutine.resume(Thread, ...)
 
 	if Sucess == false then
-		print(`[Signal] Could not resume thread, {Message}\nTrace: {debug.traceback()}`)
+		coroutine.wrap(error)(
+			debug.traceback(`[Signal] Could not resume thread, Message: {Message}`, 3), 3
+		)
 	end
 end
 
 local TaskSpawn = if task then task.spawn else Resume
 local FreeThreads = {} :: {thread}
+local Empty = function() end
 
 local function RunCallback(Callback, Thread, ...)
 	Callback(...)
@@ -62,8 +71,12 @@ local function Yielder()
 	end
 end
 
+--------------------------------------------------------------------------------
+-- Connection
+--------------------------------------------------------------------------------
+
 local function Connection_Call<T...>(self: Connection<T...>)
-	self[1] = function() end
+	self[1] = Empty
 	local Signal = self[2] :: Signal<T...>
 	local Index = table.find(Signal.Connections, self)
 
@@ -84,32 +97,72 @@ local ConnectionPrototype = {
 }
 ConnectionPrototype.__index = ConnectionPrototype
 
-local function Sender_Call<T...>(self: Sender<T...>, ...: T)
-	for _, ConnectionOrThread in self[1].Connections do
+--------------------------------------------------------------------------------
+-- Sender
+--------------------------------------------------------------------------------
+
+local function RunConnections<T...>(Connections: {Connection<T...> | thread}, ...: T)
+	for Index, ConnectionOrThread in Connections do
 		if typeof(ConnectionOrThread) == "table" then 
-			local Value: Callback<T...> = ConnectionOrThread[1] :: any
+			local Callback: Callback<T...> = ConnectionOrThread[1] :: any
 
 			if #FreeThreads > 0 then
 				local Thread = FreeThreads[#FreeThreads]
 				FreeThreads[#FreeThreads] = nil
-				TaskSpawn(Thread, Value, Thread, ...)
+				TaskSpawn(Thread, Callback, Thread, ...)
 			else
 				local Thread = coroutine.create(Yielder)
 				coroutine.resume(Thread)
-				TaskSpawn(Thread, Value, Thread, ...)
+				TaskSpawn(Thread, Callback, Thread, ...)
+			end
+
+			if ConnectionOrThread[3] then
+				if #Connections > 1 then
+					Connections[Index] = Connections[#Connections]
+					Connections[#Connections] = nil
+				else
+					Connections[Index] = nil
+				end
 			end
 		else
 			TaskSpawn(ConnectionOrThread, ...)
+
+			if #Connections > 1 then
+				Connections[Index] = Connections[#Connections]
+				Connections[#Connections] = nil
+			else
+				Connections[Index] = nil
+				return
+			end
 		end
 	end
 end
+
+local function ReadableSender_Call<T>(self: Sender<T>, Value: T)
+	local Signal = self[1]
+	Signal.Value = Value
+	RunConnections(Signal.Connections, Value)
+end
+
+local function Sender_Call<T...>(self: Sender<T...>, ...: T)
+	RunConnections(self[1].Connections, ...)
+end
+
+local ReadableSenderPrototype = {
+	__call = ReadableSender_Call,
+}
+ReadableSenderPrototype.__index = ReadableSenderPrototype
 
 local SenderPrototype = {
 	__call = Sender_Call,
 }
 SenderPrototype.__index = SenderPrototype
 
-local function Signal_Connect<T...>(self: Signal<T...>, Callback: Callback<T...>)
+--------------------------------------------------------------------------------
+-- Signal
+--------------------------------------------------------------------------------
+
+local function Signal_Subscribe<T...>(self: Signal<T...>, Callback: Callback<T...>)
 	local Refrences = table.create(2)
 	Refrences[1] = Callback
 	Refrences[2] = self
@@ -120,16 +173,14 @@ local function Signal_Connect<T...>(self: Signal<T...>, Callback: Callback<T...>
 end
 
 local function Signal_Once<T...>(self: Signal<T...>, Callback: Callback<T...>)
-	local Disconnect
-	Disconnect = Signal_Connect(self, function(...: T)
-		Callback(...)
-		Disconnect()
-	end)
-	return Disconnect
-end
+	local Refrences = table.create(3)
+	Refrences[1] = Callback
+	Refrences[2] = self
+	Refrences[3] = true
 
-local function Signal_Clear<T...>(self: Signal<T...>)
-	table.clear(self.Connections)
+	local Connection = setmetatable(Refrences, ConnectionPrototype)
+	self.Connections[#self.Connections + 1] = Connection
+	return Connection
 end
 
 local function Signal_Wait<T...>(self: Signal<T...>)
@@ -137,24 +188,16 @@ local function Signal_Wait<T...>(self: Signal<T...>)
 	return coroutine.yield()
 end
 
-local FrozenSignalPrototype = {
-	Connect = Signal_Connect,
-	Once = Signal_Once,
-	Wait = Signal_Wait,
-}
-FrozenSignalPrototype.__index = FrozenSignalPrototype
-
 local SignalPrototype = {
-	Connect = Signal_Connect,
-	Clear = Signal_Clear,
+	Subscribe = Signal_Subscribe,
 	Once = Signal_Once,
 	Wait = Signal_Wait,
 }
 SignalPrototype.__index = SignalPrototype
 
-local function CreateFrozenSignal<T...>(): (FrozenSignal<T...>, (...T) -> ())
-	local self = setmetatable({Connections = {}}, FrozenSignalPrototype)
-	return self, setmetatable(table.create(1, self), SenderPrototype)
+local function CreateReadableSignal<Value>(Value: Value): (ReadableSignal<Value>, (NewValue: Value) -> ())
+	local self = setmetatable({Connections = {}, Value = Value}, SignalPrototype)
+	return self, setmetatable(table.create(1, self), ReadableSenderPrototype)
 end
 
 local function CreateSignal<T...>(): (Signal<T...>, (...T) -> ())
@@ -162,9 +205,9 @@ local function CreateSignal<T...>(): (Signal<T...>, (...T) -> ())
 	return self, setmetatable(table.create(1, self), SenderPrototype)
 end
 
-local Exports = table.freeze({
-	frozen = CreateFrozenSignal,
-	new = CreateSignal,
-})
+local Exports = {
+	readable = CreateReadableSignal,
+	create = CreateSignal,
+}
 
 return Exports
