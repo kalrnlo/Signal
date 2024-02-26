@@ -25,8 +25,6 @@ type SenderPrototype<T...> = {
 	__call: (self: Sender<T...>, ...T) -> ()
 }
 
-type Connections<T...> = {Connection<T...> | thread}
-
 type Callback<T...> = (...T) -> ()
 
 export type ValueSignal<Value> = Signal<Value> & {Value: Value}
