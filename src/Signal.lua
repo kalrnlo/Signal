@@ -140,7 +140,7 @@ end
 
 local function ReadableSender_Call<T>(self: Sender<T>, Value: T)
 	local Signal = self[1]
-	
+
 	if Value ~= Signal.Value then
 		Signal.Value = Value
 		RunConnections(Signal.Connections, Value)
@@ -203,7 +203,7 @@ local function CreateSignal<T...>(): (Signal<T...>, (...T) -> ())
 	return self, setmetatable(table.create(1, self), SenderPrototype)
 end
 
-local function CreateReadableSignal<Value>(Value: Value): (ReadableSignal<Value>, (NewValue: Value) -> ())
+local function CreateReadableSignal<Value>(Value: Value?): (ReadableSignal<Value>, (NewValue: Value) -> ())
 	local self = setmetatable({Connections = {}, Value = Value}, SignalPrototype)
 	return self, setmetatable(table.create(1, self), ReadableSenderPrototype)
 end
