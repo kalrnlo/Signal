@@ -29,7 +29,7 @@ type Connections<T...> = {Connection<T...> | thread}
 
 type Callback<T...> = (...T) -> ()
 
-export type ReadableSignal<Value> = Signal<Value> & {Value: Value}
+export type ValueSignal<Value> = Signal<Value> & {Value: Value}
 
 export type Signal<T...> = {
 	Subscribe: (self: Signal<T...>, Callback: Callback<T...>) -> () -> (),
@@ -138,7 +138,7 @@ local function RunConnections<T...>(Connections: {Connection<T...> | thread | {C
 	end
 end
 
-local function ReadableSender_Call<T>(self: Sender<T>, Value: T)
+local function ValueSender_Call<T>(self: Sender<T>, Value: T)
 	local Signal = self[1]
 
 	if Value ~= Signal.Value then
@@ -151,10 +151,10 @@ local function Sender_Call<T...>(self: Sender<T...>, ...: T)
 	RunConnections(self[1].Connections, ...)
 end
 
-local ReadableSenderPrototype = {
-	__call = ReadableSender_Call,
+local ValueSenderPrototype = {
+	__call = ValueSender_Call,
 }
-ReadableSenderPrototype.__index = ReadableSenderPrototype
+ValueSenderPrototype.__index = ValueSenderPrototype
 
 local SenderPrototype = {
 	__call = Sender_Call,
@@ -198,18 +198,18 @@ local SignalPrototype = {
 }
 SignalPrototype.__index = SignalPrototype
 
+local function CreateValueSignal<Value>(Value: Value?): (ValueSignal<Value>, (NewValue: Value) -> ())
+	local self = setmetatable({Connections = {}, Value = Value}, SignalPrototype)
+	return self, setmetatable(table.create(1, self), ReadableSenderPrototype)
+end
+
 local function CreateSignal<T...>(): (Signal<T...>, (...T) -> ())
 	local self = setmetatable({Connections = {}}, SignalPrototype)
 	return self, setmetatable(table.create(1, self), SenderPrototype)
 end
 
-local function CreateReadableSignal<Value>(Value: Value?): (ReadableSignal<Value>, (NewValue: Value) -> ())
-	local self = setmetatable({Connections = {}, Value = Value}, SignalPrototype)
-	return self, setmetatable(table.create(1, self), ReadableSenderPrototype)
-end
-
 local Exports = {
-	readable = CreateReadableSignal,
+	value = CreateValueSignal,
 	create = CreateSignal,
 }
 

@@ -1,6 +1,6 @@
 {
-    "name": "LemonSignal",
+    "name": "Signal",
     "tree": {
-        "$path": "src/LemonSignal.lua"
+        "$path": "src/Signal.luau"
     }
 }

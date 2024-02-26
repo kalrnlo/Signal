@@ -4,7 +4,7 @@
         "$className": "DataModel",
         "ReplicatedStorage": {
             "$ignoreUnknownInstances": true,
-            "LemonSignal": {
+            "Signal": {
                 "$path": "default.project.json"
             }
         },
