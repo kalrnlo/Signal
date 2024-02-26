@@ -101,7 +101,7 @@ ConnectionPrototype.__index = ConnectionPrototype
 -- Sender
 --------------------------------------------------------------------------------
 
-local function RunConnections<T...>(Connections: {Connection<T...> | thread | Callback<T...>}, ...: T)
+local function RunConnections<T...>(Connections: {Connection<T...> | thread | {Callback<T...>}}, ...: T)
 	for Index, ConnectionOrThread in Connections do
 		if typeof(ConnectionOrThread) == "table" then 
 			local Callback: Callback<T...> = ConnectionOrThread[1] :: any
