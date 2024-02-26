@@ -35,7 +35,7 @@ export type Signal<T...> = {
 	Subscribe: (self: Signal<T...>, Callback: Callback<T...>) -> () -> (),
 	Once: (self: Signal<T...>, Callback: Callback<T...>) -> () -> (),
 	Wait: (self: Signal<T...>) -> T...,
-	Connections: {Connection<T...> | thread},
+	Connections: {Connection<T...> | thread | {Callback<T...>}},
 }
 
 type ConnectionPrototype<T...> = {
@@ -116,7 +116,7 @@ local function RunConnections<T...>(Connections: {Connection<T...> | thread}, ..
 				TaskSpawn(Thread, Callback, Thread, ...)
 			end
 
-			if ConnectionOrThread[3] then
+			if #ConnectionOrThread == 3 then
 				if #Connections > 1 then
 					Connections[Index] = Connections[#Connections]
 					Connections[#Connections] = nil
@@ -195,14 +195,14 @@ local SignalPrototype = {
 }
 SignalPrototype.__index = SignalPrototype
 
-local function CreateReadableSignal<Value>(Value: Value): (ReadableSignal<Value>, (NewValue: Value) -> ())
-	local self = setmetatable({Connections = {}, Value = Value}, SignalPrototype)
-	return self, setmetatable(table.create(1, self), ReadableSenderPrototype)
-end
-
 local function CreateSignal<T...>(): (Signal<T...>, (...T) -> ())
 	local self = setmetatable({Connections = {}}, SignalPrototype)
 	return self, setmetatable(table.create(1, self), SenderPrototype)
+end
+
+local function CreateReadableSignal<Value>(Value: Value): (ReadableSignal<Value>, (NewValue: Value) -> ())
+	local self = setmetatable({Connections = {}, Value = Value}, SignalPrototype)
+	return self, setmetatable(table.create(1, self), ReadableSenderPrototype)
 end
 
 local Exports = {
