@@ -140,8 +140,11 @@ end
 
 local function ReadableSender_Call<T>(self: Sender<T>, Value: T)
 	local Signal = self[1]
-	Signal.Value = Value
-	RunConnections(Signal.Connections, Value)
+	
+	if Value ~= Signal.Value then
+		Signal.Value = Value
+		RunConnections(Signal.Connections, Value)
+	end
 end
 
 local function Sender_Call<T...>(self: Sender<T...>, ...: T)
