@@ -7,12 +7,12 @@
 -- infact this signal is so anti-ordering that it uses swap removal
 -- based on roblox's signal-lua and LemonSignal.
 -- @Kalrnlo
--- 25/02/2024
+-- 19/03/2024
 
 type Sender<T...> = typeof(setmetatable({} :: {Signal<T...>}, {} :: SenderPrototype))
 
 type Connection<T...> = typeof(setmetatable({} :: {
-	["1"]: Callback<T...>,
+	["1"]: (...T) -> (),
 	["2"]: Signal<T...>,
 	["3"]: boolean?,
 }, {} :: ConnectionPrototype))
@@ -30,18 +30,10 @@ type Callback<T...> = (...T) -> ()
 export type ValueSignal<Value> = Signal<Value> & {Value: Value}
 
 export type Signal<T...> = {
-	Subscribe: (self: Signal<T...>, Callback: Callback<T...>) -> () -> (),
-	Once: (self: Signal<T...>, Callback: Callback<T...>) -> () -> (),
+	Subscribe: (self: Signal<T...>, Callback: (...T) -> ()) -> () -> (),
+	Once: (self: Signal<T...>, Callback: (...T) -> ()) -> () -> (),
+	Connections: {Connection<T...> | thread},
 	Wait: (self: Signal<T...>) -> T...,
-	Connections: {Connection<T...> | thread | {Callback<T...>}},
-}
-
-type ConnectionPrototype<T...> = {
-	__call: (self: Connection<T...>) -> ()
-}
-
-type SenderPrototype<T...> = {
-	__call: (self: Sender<T...>, ...T) -> ()
 }
 
 local function Resume<T...>(Thread: thread, ...: T...)
@@ -101,8 +93,8 @@ ConnectionPrototype.__index = ConnectionPrototype
 
 local function RunConnections<T...>(Connections: {Connection<T...> | thread | {Callback<T...>}}, ...: T)
 	for Index, ConnectionOrThread in Connections do
-		if typeof(ConnectionOrThread) == "table" then 
-			local Callback: Callback<T...> = ConnectionOrThread[1] :: any
+		if type(ConnectionOrThread) == "table" then 
+			local Callback: (...T) -> () = ConnectionOrThread[1] :: any
 
 			if #FreeThreads > 0 then
 				local Thread = FreeThreads[#FreeThreads]
@@ -206,7 +198,7 @@ local function CreateSignal<T...>(): (Signal<T...>, (...T) -> ())
 	return self, setmetatable(table.create(1, self), SenderPrototype)
 end
 
-local Exports = {
+local Exports = table.freeze {
 	value = CreateValueSignal,
 	create = CreateSignal,
 }
