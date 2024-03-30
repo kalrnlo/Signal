@@ -39,7 +39,7 @@ export type Signal<T...> = {
 local function Resume<T...>(Thread: thread, ...: T...)
 	local Success, Message = coroutine.resume(Thread, ...)
 
-	if Sucess == false then
+	if Success == false then
 		coroutine.wrap(error)(
 			debug.traceback(`[Signal] Could not resume thread, Message: {Message}`, 3), 3
 		)
