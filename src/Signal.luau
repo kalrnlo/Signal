@@ -7,7 +7,7 @@
 -- infact this signal is so anti-ordering that it uses swap removal
 -- based on roblox's signal-lua and LemonSignal.
 -- @Kalrnlo
--- 19/03/2024
+-- 30/03/2024
 
 type Sender<T...> = typeof(setmetatable({} :: {Signal<T...>}, {} :: SenderPrototype))
 
