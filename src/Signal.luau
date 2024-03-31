@@ -1,5 +1,5 @@
 --!optimize 2
---!strict
+--!nocheck
 --!native
 
 -- Signal
@@ -9,20 +9,20 @@
 -- @Kalrnlo
 -- 30/03/2024
 
-type Sender<T...> = typeof(setmetatable({} :: {Signal<T...>}, {} :: SenderPrototype))
+type Sender<values...> = typeof(setmetatable({} :: {Signal<values...>}, {} :: SenderPrototype<values...>))
 
 type Connection<values...> = typeof(setmetatable({} :: {
 	["1"]: (values...) -> (),
 	["2"]: Signal<values...>,
 	["3"]: boolean?,
-}, {} :: ConnectionPrototype))
+}, {} :: ConnectionPrototype<values...>))
 
-type ConnectionPrototype<T...> = {
-	__call: (self: Connection<T...>) -> ()
+type ConnectionPrototype<values...> = {
+	__call: (self: Connection<values...>) -> ()
 }
 
-type SenderPrototype<T...> = {
-	__call: (self: Sender<T...>, ...T) -> ()
+type SenderPrototype<values...> = {
+	__call: (self: Sender<values...>, values...) -> ()
 }
 
 export type ValueReuseSignal<value> = ValueSignal<value> & ReuseSignal<value>
@@ -212,7 +212,6 @@ local SenderPrototype = Metaize {
 	__call = Sender_Call,
 }
 
-
 --------------------------------------------------------------------------------
 -- Signal
 --------------------------------------------------------------------------------
@@ -303,7 +302,7 @@ end
 local Exports = table.freeze {
 	value = CreateValueSignal :: (<value>(value: value?) -> (ValueSignal<value>, (new: value) -> ())) & 
 		(<value>(value: value?, reuse_threads: true, pre_allocate_threads: number?) -> (ValueReuseSignal<value>, (new: value) -> ())),
-	create = CreateSignal :: (<values...>() -> (Signal<...values>, (values...) -> ())) & 
+	create = (CreateSignal :: any) :: (<values...>() -> (Signal<...values>, (values...) -> ())) & 
 		(<values...>(reuse_threads: true, pre_allocate_threads: number?) -> (ReuseSignal<values...>, (values...) -> ())),
 }
 
