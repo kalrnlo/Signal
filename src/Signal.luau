@@ -1,5 +1,5 @@
 --!optimize 2
---!nocheck
+--!strict
 --!native
 
 -- Signal
