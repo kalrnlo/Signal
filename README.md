@@ -34,7 +34,7 @@ create(reuse_threads, pre_allocate_threads)
 - pre_allocate_threads: a number of threads to preallocate, by defualt 2
 
 ```lua
-value<value>(value, reuse_threads, PreAllocateThreads)
+value<value>(value, reuse_threads, pre_allocate_threads)
 ```
 - value: the starting value for the value signal,
 value signals are diffrent in that they store a singular value, and the fire function is replaced with a set function to set the value.
