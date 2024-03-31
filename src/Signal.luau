@@ -11,9 +11,9 @@
 
 type Sender<T...> = typeof(setmetatable({} :: {Signal<T...>}, {} :: SenderPrototype))
 
-type Connection<T...> = typeof(setmetatable({} :: {
-	["1"]: (...T) -> (),
-	["2"]: Signal<T...>,
+type Connection<values...> = typeof(setmetatable({} :: {
+	["1"]: (values...) -> (),
+	["2"]: Signal<values...>,
 	["3"]: boolean?,
 }, {} :: ConnectionPrototype))
 
@@ -25,18 +25,27 @@ type SenderPrototype<T...> = {
 	__call: (self: Sender<T...>, ...T) -> ()
 }
 
-type Callback<T...> = (...T) -> ()
+export type ValueReuseSignal<value> = ValueSignal<value> & ReuseSignal<value>
 
-export type ValueSignal<Value> = Signal<Value> & {Value: Value}
+export type ValueSignal<value> = Signal<value> & {value: value}
 
-export type Signal<T...> = {
-	Subscribe: (self: Signal<T...>, Callback: (...T) -> ()) -> () -> (),
-	Once: (self: Signal<T...>, Callback: (...T) -> ()) -> () -> (),
-	Connections: {Connection<T...> | thread},
-	Wait: (self: Signal<T...>) -> T...,
+export type Signal<values...> = {
+	subscribe: (self: Signal<values...>, Callback: (values...) -> ()) -> () -> (),
+	once: (self: Signal<values...>, Callback: (values...) -> ()) -> () -> (),
+	connections: {Connection<values...> | thread},
+	wait: (self: Signal<values...>) -> values...,
 }
 
-local function Resume<T...>(Thread: thread, ...: T...)
+export type ReuseSignal<values...> = Signal<values...> & {
+	free_threads: {thread}
+}
+
+local function Resume<T...>(ThreadOrCallback: thread | (...T) -> (), ...: T...)
+	local Thread = if type(ThreadOrCallback) == "thread" then
+			ThreadOrCallback
+		else
+			coroutine.create(ThreadOrCallback)
+
 	local Success, Message = coroutine.resume(Thread, ...)
 
 	if Success == false then
@@ -46,13 +55,17 @@ local function Resume<T...>(Thread: thread, ...: T...)
 	end
 end
 
+local function Metaize<tbl>(tbl: tbl & {}): tbl & {__index: tbl}
+	tbl.__index = tbl
+	return table.freeze(tbl)
+end
+
 local TaskSpawn = if task then task.spawn else Resume
-local FreeThreads = {} :: {thread}
 local Empty = function() end
 
-local function RunCallback(Callback, Thread, ...)
+local function RunCallback(FreeThreads: {thread}, Callback, Thread, ...)
 	Callback(...)
-	table.insert(FreeThreads, thread)
+	table.insert(FreeThreads, Thread)
 end
 
 local function Yielder()
@@ -68,30 +81,32 @@ end
 local function Connection_Call<T...>(self: Connection<T...>)
 	self[1] = Empty
 	local Signal = self[2] :: Signal<T...>
-	local Index = table.find(Signal.Connections, self)
+	local Index = table.find(Signal.connections, self)
 
 	if Index then
-		local Length = #Signal.Connections
+		local Length = #Signal.connections
 
 		if Length > 1 then
-			Signal.Connections[Index] = Signal.Connections[Length]
-			Signal.Connections[Length] = nil
+			Signal.connections[Index] = Signal.connections[Length]
+			Signal.connections[Length] = nil
 		else
-			Signal.Connections[Index] = nil
+			Signal.connections[Index] = nil
 		end
 	end
 end
 
-local ConnectionPrototype = {
+local ConnectionPrototype = Metaize {
 	__call = Connection_Call,
 }
-ConnectionPrototype.__index = ConnectionPrototype
 
 --------------------------------------------------------------------------------
 -- Sender
---------------------------------------------------------------------------------
+-------------------------------------------------------------------------------- 
 
-local function RunConnections<T...>(Connections: {Connection<T...> | thread | {Callback<T...>}}, ...: T)
+local function ReuseRunConnections<T...>(Signal: ReuseSignal<T...>, ...: T)
+	local Connections = Signal.connections
+	local FreeThreads = Signal.free_threads
+
 	for Index, ConnectionOrThread in Connections do
 		if type(ConnectionOrThread) == "table" then 
 			local Callback: (...T) -> () = ConnectionOrThread[1] :: any
@@ -99,11 +114,11 @@ local function RunConnections<T...>(Connections: {Connection<T...> | thread | {C
 			if #FreeThreads > 0 then
 				local Thread = FreeThreads[#FreeThreads]
 				FreeThreads[#FreeThreads] = nil
-				TaskSpawn(Thread, Callback, Thread, ...)
+				TaskSpawn(Thread, FreeThreads, Callback, Thread, ...)
 			else
 				local Thread = coroutine.create(Yielder)
 				coroutine.resume(Thread)
-				TaskSpawn(Thread, Callback, Thread, ...)
+				TaskSpawn(Thread, FreeThreads, Callback, Thread, ...)
 			end
 
 			if #ConnectionOrThread == 3 then
@@ -128,28 +143,75 @@ local function RunConnections<T...>(Connections: {Connection<T...> | thread | {C
 	end
 end
 
+local function RunConnections<T...>(Connections: {Connection<T...> | thread}, ...: T)
+	for Index, ConnectionOrThread in Connections do
+		if type(ConnectionOrThread) == "table" then 
+			TaskSpawn(ConnectionOrThread[1] :: any, ...)
+
+			if #ConnectionOrThread == 3 then
+				if #Connections > 1 then
+					Connections[Index] = Connections[#Connections]
+					Connections[#Connections] = nil
+				else
+					Connections[Index] = nil
+				end
+			end
+		else
+			TaskSpawn(ConnectionOrThread, ...)
+
+			if #Connections > 1 then
+				Connections[Index] = Connections[#Connections]
+				Connections[#Connections] = nil
+			else
+				Connections[Index] = nil
+				return
+			end
+		end
+	end
+end
+
+local function ReuseValueSender_Call<T>(self: Sender<T>, Value: T)
+	local Signal = self[1]
+
+	if Value ~= Signal.Value then
+		Signal.value = Value
+		ReuseRunConnections(Signal, Value)
+	end
+end
+
+local function ReuseSender_Call<T...>(self: Sender<T...>, ...: T)
+	ReuseRunConnections(self[1], ...)
+end
+
 local function ValueSender_Call<T>(self: Sender<T>, Value: T)
 	local Signal = self[1]
 
 	if Value ~= Signal.Value then
-		Signal.Value = Value
-		RunConnections(Signal.Connections, Value)
+		Signal.value = Value
+		RunConnections(Signal.connections, Value)
 	end
 end
 
 local function Sender_Call<T...>(self: Sender<T...>, ...: T)
-	RunConnections(self[1].Connections, ...)
+	RunConnections(self[1].connections, ...)
 end
 
-local ValueSenderPrototype = {
+local ReuseValueSenderPrototype = Metaize {
+	__call = ReuseValueSender_Call,
+}
+
+local ReuseSenderPrototype = Metaize {
+	__call = ReuseSender_Call,
+}
+
+local ValueSenderPrototype = Metaize {
 	__call = ValueSender_Call,
 }
-ValueSenderPrototype.__index = ValueSenderPrototype
 
-local SenderPrototype = {
+local SenderPrototype = Metaize {
 	__call = Sender_Call,
 }
-SenderPrototype.__index = SenderPrototype
+
 
 --------------------------------------------------------------------------------
 -- Signal
@@ -161,7 +223,7 @@ local function Signal_Subscribe<T...>(self: Signal<T...>, Callback: Callback<T..
 	Refrences[2] = self
 
 	local Connection = setmetatable(Refrences, ConnectionPrototype)
-	self.Connections[#self.Connections + 1] = Connection
+	self.connections[#self.connections + 1] = Connection
 	return Connection
 end
 
@@ -172,35 +234,77 @@ local function Signal_Once<T...>(self: Signal<T...>, Callback: Callback<T...>)
 	Refrences[3] = true
 
 	local Connection = setmetatable(Refrences, ConnectionPrototype)
-	self.Connections[#self.Connections + 1] = Connection
+	self.connections[#self.connections + 1] = Connection
 	return Connection
 end
 
 local function Signal_Wait<T...>(self: Signal<T...>)
-	self.Connections[#self.Connections + 1] = coroutine.running()
+	self.connections[#self.connections + 1] = coroutine.running()
 	return coroutine.yield()
 end
 
-local SignalPrototype = {
-	Subscribe = Signal_Subscribe,
-	Once = Signal_Once,
-	Wait = Signal_Wait,
+local SignalPrototype = Metaize {
+	subscribe = Signal_Subscribe,
+	once = Signal_Once,
+	wait = Signal_Wait,
 }
-SignalPrototype.__index = SignalPrototype
 
-local function CreateValueSignal<Value>(Value: Value?): (ValueSignal<Value>, (NewValue: Value) -> ())
-	local self = setmetatable({Connections = {}, Value = Value}, SignalPrototype)
-	return self, setmetatable(table.create(1, self), ReadableSenderPrototype)
+local function CreateValueSignal<Value>(Value: Value?, ReuseThreads: boolean?, PreAllocateThreads: number?): (ValueSignal<Value>, (NewValue: Value) -> ())
+	if ReuseThreads then
+		if PreAllocateThreads and PreAllocateThreads < 1 then
+			error("[Signal] PreAllocateThreads cannot be less than 1")
+		end
+		local PreAllocateCount = PreAllocateThreads or 2
+		local FreeThreads = table.create(PreAllocateCount)
+		local self = setmetatable({
+			connections = table.create(PreAllocateCount),
+			free_threads = FreeThreads,
+			value = Value,
+		}, SignalPrototype)
+
+		if PreAllocateThreads then
+			for Index = 1, PreAllocateCount do
+				FreeThreads[Index] = coroutine.create(Yielder)
+			end
+		end
+
+		return self, setmetatable(table.create(1, self), ReuseValueSenderPrototype)
+	else
+		local self = setmetatable({connections = {}, value = Value}, SignalPrototype)
+		return self, setmetatable(table.create(1, self), ValueSenderPrototype)
+	end
 end
 
-local function CreateSignal<T...>(): (Signal<T...>, (...T) -> ())
-	local self = setmetatable({Connections = {}}, SignalPrototype)
-	return self, setmetatable(table.create(1, self), SenderPrototype)
+local function CreateSignal<T...>(ReuseThreads: boolean?, PreAllocateThreads: number?): (Signal<T...>, (...T) -> ())
+	if ReuseThreads then
+		if PreAllocateThreads and PreAllocateThreads < 1 then
+			error("[Signal] PreAllocateThreads cannot be less than 1")
+		end
+		local PreAllocateCount = PreAllocateThreads or 2
+		local FreeThreads = table.create(PreAllocateCount)
+		local self = setmetatable({
+			connections = table.create(PreAllocateCount),
+			free_threads = FreeThreads,
+		}, SignalPrototype)
+
+		if PreAllocateThreads then
+			for Index = 1, PreAllocateCount do
+				FreeThreads[Index] = coroutine.create(Yielder)
+			end
+		end
+
+		return self, setmetatable(table.create(1, self), ReuseSenderPrototype)
+	else
+		local self = setmetatable({Connections = {}}, SignalPrototype)
+		return self, setmetatable(table.create(1, self), SenderPrototype)
+	end
 end
 
 local Exports = table.freeze {
-	value = CreateValueSignal,
-	create = CreateSignal,
+	value = CreateValueSignal :: (<value>(value: value?) -> (ValueSignal<value>, (new: value) -> ())) & 
+		(<value>(value: value?, reuse_threads: true, pre_allocate_threads: number?) -> (ValueReuseSignal<value>, (new: value) -> ())),
+	create = CreateSignal :: (<values...>() -> (Signal<...values>, (values...) -> ())) & 
+		(<values...>(reuse_threads: true, pre_allocate_threads: number?) -> (ReuseSignal<values...>, (values...) -> ())),
 }
 
 return Exports
