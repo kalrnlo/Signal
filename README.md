@@ -31,7 +31,7 @@ set(30)
 create(reuse_threads, pre_allocate_threads)
 ```
 - reuse_threads: boolean indicating whether or not the signal created should partake in thread reuse
-- pre_allocate_threads: a number of threads to preallocate, by defualt 2 if ```reuse_threads``` is true
+- pre_allocate_threads: a number of threads to preallocate, by defualt 2
 
 ```lua
 value<value>(value, reuse_threads, pre_allocate_threads)
@@ -39,7 +39,7 @@ value<value>(value, reuse_threads, pre_allocate_threads)
 - ```note: value signals only fire their connections if the new value is different from the old value```
 - value: the starting value for the value signal, value signals are diffrent in that they store a singular value, and the fire function is replaced with a set function to set the value
 - reuse_threads: boolean indicating whether or not the signal created should partake in thread reuse
-- pre_allocate_threads: a number of threads to preallocate, by defualt 2 if ```reuse_threads``` is true
+- pre_allocate_threads: a number of threads to preallocate, by defualt 2
 
 #### methods
 
