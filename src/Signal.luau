@@ -55,7 +55,7 @@ local function Resume<T...>(ThreadOrCallback: thread | (...T) -> (), ...: T...)
 	end
 end
 
-local function Metaize<tbl>(tbl: tbl & {}): tbl & {__index: tbl}
+local function Metaize<tbl>(tbl: tbl ): tbl & {__index: tbl}
 	tbl.__index = tbl
 	return table.freeze(tbl)
 end
@@ -63,14 +63,14 @@ end
 local TaskSpawn = if task then task.spawn else Resume
 local Empty = function() end
 
-local function RunCallback(FreeThreads: {thread}, Callback, Thread, ...)
-	Callback(...)
-	table.insert(FreeThreads, Thread)
+local function run_callback<values...>(free_threads: {thread}, thread: thread, callback: (...values) -> (), ...: values)
+	callback(...)
+	free_threads[#free_threads + 1] = thread
 end
 
 local function Yielder()
 	while true do
-		RunCallback(coroutine.yield())
+		run_callback(coroutine.yield())
 	end
 end
 
@@ -114,11 +114,11 @@ local function ReuseRunConnections<T...>(Signal: ReuseSignal<T...>, ...: T)
 			if #FreeThreads > 0 then
 				local Thread = FreeThreads[#FreeThreads]
 				FreeThreads[#FreeThreads] = nil
-				TaskSpawn(Thread, FreeThreads, Callback, Thread, ...)
+				TaskSpawn(Thread, FreeThreads, Thread, Callback, ...)
 			else
 				local Thread = coroutine.create(Yielder)
 				coroutine.resume(Thread)
-				TaskSpawn(Thread, FreeThreads, Callback, Thread, ...)
+				TaskSpawn(Thread, FreeThreads, Thread, Callback, ...)
 			end
 
 			if #ConnectionOrThread == 3 then
