@@ -302,7 +302,6 @@ local function CreateSignal<T...>(ReuseThreads: boolean?, PreAllocateThreads: nu
 			local self = setmetatable({
 				free_threads = {},
 				connections = {},
-				value = Value,
 			}, SignalPrototype)
 
 			return self, setmetatable(table.create(1, self), ReuseSenderPrototype)
