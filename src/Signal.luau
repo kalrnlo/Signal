@@ -250,24 +250,31 @@ local SignalPrototype = Metaize {
 
 local function CreateValueSignal<Value>(Value: Value?, ReuseThreads: boolean?, PreAllocateThreads: number?): (ValueSignal<Value>, (NewValue: Value) -> ())
 	if ReuseThreads then
-		if PreAllocateThreads and PreAllocateThreads < 1 then
-			error("[Signal] PreAllocateThreads cannot be less than 1")
-		end
-		local PreAllocateCount = PreAllocateThreads or 2
-		local FreeThreads = table.create(PreAllocateCount)
-		local self = setmetatable({
-			connections = table.create(PreAllocateCount),
-			free_threads = FreeThreads,
-			value = Value,
-		}, SignalPrototype)
-
 		if PreAllocateThreads then
-			for Index = 1, PreAllocateCount do
+			if PreAllocateThreads < 1 then
+				error("[Signal] PreAllocateThreads cannot be less than 1")
+			end
+			local FreeThreads = table.create(PreAllocateThreads)
+			local self = setmetatable({
+				connections = table.create(PreAllocateThreads),
+				free_threads = FreeThreads,
+				value = Value,
+			}, SignalPrototype)
+
+			for Index = 1, PreAllocateThreads do
 				FreeThreads[Index] = coroutine.create(Yielder)
 			end
-		end
 
-		return self, setmetatable(table.create(1, self), ReuseValueSenderPrototype)
+			return self, setmetatable(table.create(1, self), ReuseValueSenderPrototype)
+		else
+			local self = setmetatable({
+				free_threads = {},
+				connections = {},
+				value = Value,
+			}, SignalPrototype)
+
+			return self, setmetatable(table.create(1, self), ReuseValueSenderPrototype)
+		end
 	else
 		local self = setmetatable({connections = {}, value = Value}, SignalPrototype)
 		return self, setmetatable(table.create(1, self), ValueSenderPrototype)
@@ -276,25 +283,32 @@ end
 
 local function CreateSignal<T...>(ReuseThreads: boolean?, PreAllocateThreads: number?): (Signal<T...>, (...T) -> ())
 	if ReuseThreads then
-		if PreAllocateThreads and PreAllocateThreads < 1 then
-			error("[Signal] PreAllocateThreads cannot be less than 1")
-		end
-		local PreAllocateCount = PreAllocateThreads or 2
-		local FreeThreads = table.create(PreAllocateCount)
-		local self = setmetatable({
-			connections = table.create(PreAllocateCount),
-			free_threads = FreeThreads,
-		}, SignalPrototype)
-
 		if PreAllocateThreads then
-			for Index = 1, PreAllocateCount do
+			if PreAllocateThreads < 1 then
+				error("[Signal] PreAllocateThreads cannot be less than 1")
+			end
+			local FreeThreads = table.create(PreAllocateThreads)
+			local self = setmetatable({
+				connections = table.create(PreAllocateThreads),
+				free_threads = FreeThreads,
+			}, SignalPrototype)
+
+			for Index = 1, PreAllocateThreads do
 				FreeThreads[Index] = coroutine.create(Yielder)
 			end
-		end
 
-		return self, setmetatable(table.create(1, self), ReuseSenderPrototype)
+			return self, setmetatable(table.create(1, self), ReuseSenderPrototype)
+		else
+			local self = setmetatable({
+				free_threads = {},
+				connections = {},
+				value = Value,
+			}, SignalPrototype)
+
+			return self, setmetatable(table.create(1, self), ReuseSenderPrototype)
+		end
 	else
-		local self = setmetatable({Connections = {}}, SignalPrototype)
+		local self = setmetatable({connections = {}}, SignalPrototype)
 		return self, setmetatable(table.create(1, self), SenderPrototype)
 	end
 end
